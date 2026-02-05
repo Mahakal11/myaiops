@@ -1,40 +1,50 @@
 name: AWS AIOps CI
 
-on: [push]
+on:
+  push:
 
 jobs:
- build:
-   runs-on: ubuntu-latest
-   steps:
-     - uses: actions/checkout@v3
+  build:
+    runs-on: ubuntu-latest
 
-     - name: Configure AWS
-       uses: aws-actions/configure-aws-credentials@v2
-       with:
-         aws-access-key-id: ${{ secrets.AWS_KEY }}
-         aws-secret-access-key: ${{ secrets.AWS_SECRET }}
-         aws-region: us-east-1
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
 
-     - name: AI Code Review (Bedrock)
-       run: python app/cicd/ai/ai-review.py
+      - name: Configure AWS
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_KEY }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET }}
+          aws-region: us-east-1
 
-     - name: Build Image
-       run: docker build -t aiops-demo ./app
+      - name: Install dependencies
+        run: pip install boto3
 
-     - name: Push to ECR
-       uses: aws-actions/amazon-ecr-login@v1
+      - name: AI Code Review (Bedrock)
+        run: |
+          python app/cicd/ai/ai-review.py app/sample.py
 
-       run: |
+      - name: Build Docker Image
+        run: |
+          docker build -t aiops-demo ./app
+
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v1
+
+      - name: Push Image to ECR
+        run: |
           aws ecr create-repository --repository-name aiops-demo || true
           docker tag aiops-demo:latest ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.us-east-1.amazonaws.com/aiops-demo:latest
           docker push ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.us-east-1.amazonaws.com/aiops-demo:latest
 
-     - name: Deploy to EKS
-       uses: aws-actions/amazon-eks-deploy-kubectl@v1
-       with:
-         cluster-name: aiops-cluster
-         region: us-east-1
-         manifests: |
+      - name: Deploy to EKS
+        uses: aws-actions/amazon-eks-deploy-kubectl@v1
+        with:
+          cluster-name: aiops-cluster
+          region: us-east-1
+          manifests: |
             app/k8s/deployment.yaml
             app/k8s/service.yaml
-         images: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.us-east-1.amazonaws.com/aiops-demo:latest
+          images: |
+            ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.us-east-1.amazonaws.com/aiops-demo:latest
